@@ -9,6 +9,8 @@ import {
   getCart,
   addToCart,
   insertLog,
+  createOrder,
+  clearCart,
 } from "./db";
 
 const BASE_URL =
@@ -223,9 +225,84 @@ export const auth = betterAuth({
           }
 
           case "checkout": {
-            throw new Error(
-              "CHECKOUT_NOT_READY: Checkout constraint enforcement ships in Phase 2. Use search_products and get_cart for now.",
-            );
+            // Get current cart
+            const cart = await getCart({ userId, agentId });
+
+            if (cart.items.length === 0) {
+              throw new Error("EMPTY_CART: Cannot checkout with an empty cart");
+            }
+
+            // Calculate cart totals
+            const cartTotalDollars = cart.totalCents / 100;
+            const merchant = cart.items[0].merchant; // All items should be from same merchant
+
+            // Verify all items are from the same merchant
+            const multipleMerchants = cart.items.some((item) => item.merchant !== merchant);
+            if (multipleMerchants) {
+              throw new Error(
+                "MULTIPLE_MERCHANTS: Cart contains items from multiple merchants. SpendPass only supports single-merchant checkout.",
+              );
+            }
+
+            // Extract constraints from the grant
+            const grant = agentSession.grants.find((g) => g.capability === "checkout");
+            if (!grant) {
+              throw new Error(
+                "NO_CHECKOUT_GRANT: Agent does not have checkout capability. Request capability first.",
+              );
+            }
+
+            // Parse constraints (stored as JSON string)
+            let constraints: {
+              max_amount?: { max?: number };
+              merchants?: { in?: string[] };
+            } = {};
+
+            try {
+              constraints = grant.constraints ? JSON.parse(grant.constraints) : {};
+            } catch {
+              throw new Error("INVALID_CONSTRAINTS: Failed to parse checkout constraints");
+            }
+
+            // Enforce max_amount constraint
+            const maxAmount = constraints.max_amount?.max;
+            if (maxAmount !== undefined && cartTotalDollars > maxAmount) {
+              throw new Error(
+                `CONSTRAINT_VIOLATION: Cart total $${cartTotalDollars.toFixed(2)} exceeds granted limit of $${maxAmount.toFixed(2)}. Current grant allows up to $${maxAmount}. Request higher capability to proceed.`,
+              );
+            }
+
+            // Enforce merchant allowlist constraint
+            const allowedMerchants = constraints.merchants?.in;
+            if (
+              allowedMerchants &&
+              Array.isArray(allowedMerchants) &&
+              !allowedMerchants.includes(merchant)
+            ) {
+              throw new Error(
+                `CONSTRAINT_VIOLATION: Merchant "${merchant}" is not in the approved list: [${allowedMerchants.join(", ")}]. Request capability for this merchant to proceed.`,
+              );
+            }
+
+            // All constraints passed — create order
+            const order = await createOrder({
+              userId,
+              agentId,
+              totalCents: cart.totalCents,
+              merchant,
+            });
+
+            // Clear cart after successful order
+            await clearCart({ userId, agentId });
+
+            return {
+              order_id: order.id,
+              total_cents: order.totalCents,
+              total_dollars: order.totalCents / 100,
+              merchant: order.merchant,
+              status: "placed",
+              message: `Order ${order.id} placed successfully! Total: $${(order.totalCents / 100).toFixed(2)}`,
+            };
           }
 
           default:
