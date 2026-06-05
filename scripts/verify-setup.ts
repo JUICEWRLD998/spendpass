@@ -62,7 +62,7 @@ async function main() {
   console.log("📦 Checking package installation...");
   try {
     const packageJson = await import("../package.json");
-    const allDeps = {
+    const allDeps: Record<string, string> = {
       ...packageJson.dependencies,
       ...packageJson.devDependencies,
     };
@@ -90,7 +90,7 @@ async function main() {
       console.log(`  ❌ DATABASE_URL not set, skipping connection test`);
       errors++;
     } else {
-      const sql = postgres(url, { max: 1, connect_timeout: 5 });
+      const sql = postgres(url, { max: 1, connect_timeout: 10, idle_timeout: 5 });
       const db = drizzle(sql);
 
       // Test connection
