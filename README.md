@@ -116,8 +116,9 @@ Full phase breakdown lives in [BUILD_TARGET.md](./BUILD_TARGET.md). Summary:
 
 ## Tech stack
 
-- **Provider:** Next.js, `@better-auth/agent-auth`, SQLite, Drizzle
+- **Provider:** Next.js, `@better-auth/agent-auth`, Supabase (PostgreSQL), Drizzle ORM
 - **Agent client:** `@auth/agent`, Vercel AI SDK
+- **AI Model:** Groq AI (llama-3.3-70b-versatile)
 - **Optional:** `@auth/agent-cli mcp` for Cursor demos
 - **Reference:** [better-auth/agent-auth examples](https://github.com/better-auth/agent-auth) (`agent-deploy` fork)
 
@@ -131,14 +132,22 @@ Copy `.env.example` to `.env` and fill in:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | Supabase PostgreSQL connection string (get from Supabase project settings) |
 | `BETTER_AUTH_SECRET` | Yes | `openssl rand -base64 32` |
 | `BETTER_AUTH_URL` | Yes | `http://localhost:3100` |
 | `NEXT_PUBLIC_APP_URL` | Yes | Same as `BETTER_AUTH_URL` for local dev |
-| `OPENAI_API_KEY` | Yes | Powers the shopping agent chat |
+| `GROQ_API_KEY` | Yes | Powers the shopping agent chat (get from https://console.groq.com/keys) |
 | `AGENT_AUTH_ENCRYPTION_KEY` | No | Encrypts agent keys in `.agent-data/` |
 
-### 2. Database setup
+### 2. Set up Supabase
+
+Follow the detailed guide in [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) to:
+1. Create a Supabase project
+2. Get your database connection string
+3. Get a Groq API key
+4. Configure your `.env` file
+
+### 3. Database setup
 
 ```bash
 npm install
@@ -146,7 +155,7 @@ npm run db:push
 npm run db:seed
 ```
 
-### 3. Run
+### 4. Run
 
 ```bash
 npm run dev
@@ -162,7 +171,9 @@ Open [http://localhost:3100](http://localhost:3100) → create an account → **
 
 ## Status
 
-**Phase 1 in progress** — provider, catalog, agent chat wired. Checkout constraints ship in Phase 2. See [BUILD_TARGET.md](./BUILD_TARGET.md) for the full spec.
+✅ **Phase 1 Complete** — Provider, catalog, agent chat, and core capabilities working with Groq AI + Supabase. Checkout constraints and escalation ship in Phase 2.
+
+See [PHASE1_COMPLETION.md](./PHASE1_COMPLETION.md) for detailed completion report and [BUILD_TARGET.md](./BUILD_TARGET.md) for the full project spec.
 
 ---
 
