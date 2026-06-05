@@ -123,9 +123,46 @@ Full phase breakdown lives in [BUILD_TARGET.md](./BUILD_TARGET.md). Summary:
 
 ---
 
+## Quick start
+
+### 1. Configure environment
+
+Copy `.env.example` to `.env` and fill in:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `BETTER_AUTH_SECRET` | Yes | `openssl rand -base64 32` |
+| `BETTER_AUTH_URL` | Yes | `http://localhost:3100` |
+| `NEXT_PUBLIC_APP_URL` | Yes | Same as `BETTER_AUTH_URL` for local dev |
+| `OPENAI_API_KEY` | Yes | Powers the shopping agent chat |
+| `AGENT_AUTH_ENCRYPTION_KEY` | No | Encrypts agent keys in `.agent-data/` |
+
+### 2. Database setup
+
+```bash
+npm install
+npm run db:push
+npm run db:seed
+```
+
+### 3. Run
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3100](http://localhost:3100) → create an account → **Agent** tab to chat with the shopping agent.
+
+### Phase 1 flow
+
+1. Ask: *"Find a USB-C hub under $40"*
+2. Agent calls `connect_agent` → browser opens device approval
+3. Approve capabilities → agent searches catalog via `search_products`
+
 ## Status
 
-**Pre-implementation** — build target confirmed. See [BUILD_TARGET.md](./BUILD_TARGET.md) for the full spec, phase tasks, and submission checklist.
+**Phase 1 in progress** — provider, catalog, agent chat wired. Checkout constraints ship in Phase 2. See [BUILD_TARGET.md](./BUILD_TARGET.md) for the full spec.
 
 ---
 
