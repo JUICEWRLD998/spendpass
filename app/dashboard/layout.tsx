@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Catalog", exact: true },
   { href: "/dashboard/chat", label: "Agent" },
+  { href: "/dashboard/delegation", label: "Delegation" },
   { href: "/dashboard/agents", label: "Agents" },
   { href: "/dashboard/hosts", label: "Hosts" },
 ];
