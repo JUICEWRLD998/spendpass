@@ -15,6 +15,26 @@ export function getAgentClient(): AgentAuthClient {
     clientInstance = new AgentAuthClient({
       storage: getAgentStorage(),
       hostName: "SpendPass Shopping Agent",
+      // Configure provider URL so SDK knows where to connect
+      urls: [PROVIDER_URL],
+      allowDirectDiscovery: true,
+      // Approval callback - called when user needs to approve
+      onApprovalRequired: async (approval) => {
+        console.log("[Agent Auth] Approval required:", {
+          method: approval.method,
+          verificationUri: approval.verification_uri,
+          userCode: approval.user_code,
+        });
+        
+        // The SDK will handle opening the browser to the verification URI
+        // This is just for logging
+        if (approval.verification_uri) {
+          console.log("[Agent Auth] Please visit:", approval.verification_uri);
+        }
+      },
+      onApprovalStatusChange: async (status) => {
+        console.log("[Agent Auth] Approval status changed:", status);
+      },
     });
   }
   return clientInstance;
@@ -34,9 +54,13 @@ export const SPENDPASS_SYSTEM_PROMPT = `You are SpendPass, a shopping assistant 
      * \`max_amount\`: { max: 50 } — $50 spending cap
      * \`merchants\`: { in: ["spendpass-store"] } — only SpendPass store
 
-2. **If connection is pending**, tell the user: "Please approve the agent in the browser window that just opened."
+2. **If the connect_agent response has approval info with verification_uri**:
+   - Tell the user: "Please open this link to approve the agent: [verification_uri]"
+   - If there's a user_code, show it: "Your verification code is: [user_code]"
+   - Wait for approval - the connection will complete automatically when user approves
+   - Then you can proceed with capability execution
 
-3. **After approval**, use \`execute_capability\` for ALL store actions.
+3. **After approval completes**, use \`execute_capability\` for ALL store actions.
 
 ## Shopping Operations
 

@@ -1,0 +1,30 @@
+{
+  "name": "@terminal3/revoke_vc",
+  "version": "0.1.33",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@noble/curves": "^1.4.2",
+    "@terminal3/vc_core": "0.0.37",
+    "did-jwt": "^8.0.4",
+    "ethers": "^6.13.1"
+  },
+  "scripts": {
+    "test": "npx jest --detectOpenHandles --coverage",
+    "build": "tsc",
+    "clean": "rimraf dist",
+    "prepublish": "pnpm run clean && pnpm run build"
+  },
+  "devDependencies": {
+    "testcontainers": "^10.10.1"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "gitHead": "a0b1a56d326d5ece06a366d49459dfeafbfab12b"
+}

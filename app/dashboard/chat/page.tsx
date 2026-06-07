@@ -1,7 +1,6 @@
 "use client";
 
-import { useChat } from "ai/react";
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 
 const SUGGESTIONS = [
   "Find a USB-C hub under $40",
@@ -9,25 +8,226 @@ const SUGGESTIONS = [
   "What's in my cart?",
 ];
 
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+}
+
 export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { messages, input, handleInputChange, handleSubmit, isLoading, error } = useChat({
-    api: "/api/chat",
-  });
+  const approvalWindowRef = useRef<Window | null>(null);
+  const lastApprovalUrlRef = useRef<string | null>(null);
+  
+  // Load messages from localStorage
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('chat-messages');
+    if (saved) {
+      try {
+        setMessages(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to load messages:', e);
+      }
+    }
+  }, []);
+
+  // Save to localStorage whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem('chat-messages', JSON.stringify(messages));
+    }
+  }, [messages]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  const clearChat = () => {
+    setMessages([]);
+    setError(null);
+    localStorage.removeItem('chat-messages');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+
+    const expectsApproval =
+      /\b(find|show|search|list|cart|buy|purchase|order|checkout|hub|monitor|cable|adapter|product)\b/i.test(
+        input,
+      );
+    if (expectsApproval) {
+      approvalWindowRef.current = window.open("", "_blank", "width=800,height=700");
+      approvalWindowRef.current?.document.write(
+        "<title>SpendPass Approval</title><body style=\"font-family:system-ui,sans-serif;padding:24px\">Waiting for approval link...</body>",
+      );
+    }
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      content: input,
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput("");
+    setIsLoading(true);
+    setError(null);
+
+    const assistantId = (Date.now() + 1).toString();
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [...messages, userMessage].map(m => ({
+            role: m.role,
+            content: m.content,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to get response");
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let assistantContent = "";
+
+      // Add empty assistant message
+      setMessages(prev => [...prev, {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+      }]);
+
+      // Read the stream and parse text chunks
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        
+        // Process complete lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          // Try to parse as text chunk (AI SDK format: "0:"content"\n")
+          if (trimmed.startsWith('0:')) {
+            try {
+              const content = JSON.parse(trimmed.substring(2));
+              assistantContent += content;
+            } catch {
+              // If not JSON, treat as plain text
+              assistantContent += trimmed.substring(2);
+            }
+          } else {
+            // Plain text streaming
+            assistantContent += trimmed;
+          }
+
+          // Update the assistant message
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, content: assistantContent } : m
+          ));
+          
+          const approvalMatch = assistantContent.match(
+            /https?:\/\/[^\s)"]+\/device\/capabilities[^\s)"]*/,
+          );
+          if (approvalMatch && lastApprovalUrlRef.current !== approvalMatch[0]) {
+            lastApprovalUrlRef.current = approvalMatch[0];
+            if (approvalWindowRef.current && !approvalWindowRef.current.closed) {
+              approvalWindowRef.current.location.href = approvalMatch[0];
+              approvalWindowRef.current.focus();
+            } else {
+              approvalWindowRef.current = window.open(
+                approvalMatch[0],
+                "_blank",
+                "width=800,height=700",
+              );
+            }
+          }
+        }
+      }
+
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        assistantContent += buffer;
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId ? { ...m, content: assistantContent } : m
+        ));
+      }
+
+      // If no content received, check if we need to handle approval
+      if (!assistantContent.trim()) {
+        console.log("No response content received - AI may be processing tools");
+        
+        // Check if there's an approval URL in the streaming response metadata
+        // The AI should tell the user about the approval link in its response
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId 
+            ? { ...m, content: "⏳ Processing your request..." } 
+            : m
+        ));
+      }
+    } catch (err) {
+      console.error("Chat error:", err);
+      setError(err instanceof Error ? err.message : "An error occurred");
+      setMessages(prev => prev.filter(m => m.id === assistantId));
+    } finally {
+      if (
+        approvalWindowRef.current &&
+        !approvalWindowRef.current.closed &&
+        !lastApprovalUrlRef.current
+      ) {
+        approvalWindowRef.current.close();
+      }
+      approvalWindowRef.current = null;
+      lastApprovalUrlRef.current = null;
+      setIsLoading(false);
+    }
+  };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setInput(suggestion);
+  };
+
   return (
     <div className="max-w-[900px] mx-auto px-6 py-8 flex flex-col h-[calc(100dvh-8rem)]">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-blue-600 via-violet-600 to-blue-600 bg-clip-text text-transparent">
-          Shopping Agent
-        </h1>
-        <p className="mt-2 text-sm text-foreground/60">
-          Natural language shopping via Agent Auth — connect, approve, then search the catalog.
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-blue-600 via-violet-600 to-blue-600 bg-clip-text text-transparent">
+            Shopping Agent
+          </h1>
+          <p className="mt-2 text-sm text-foreground/60">
+            Natural language shopping via Agent Auth — connect, approve, then search the catalog.
+          </p>
+        </div>
+        {messages.length > 0 && (
+          <button
+            onClick={clearChat}
+            className="px-4 py-2 text-sm font-medium rounded-lg border-2 border-border hover:bg-red-50 dark:hover:bg-red-950/20 hover:border-red-300 dark:hover:border-red-800 transition-all text-foreground/70 hover:text-red-600 dark:hover:text-red-400"
+          >
+            Clear Chat
+          </button>
+        )}
       </div>
 
       <div
@@ -63,12 +263,7 @@ export default function ChatPage() {
                 <button
                   key={s}
                   type="button"
-                  onClick={() => {
-                    const event = {
-                      target: { value: s },
-                    } as React.ChangeEvent<HTMLInputElement>;
-                    handleInputChange(event);
-                  }}
+                  onClick={() => handleSuggestionClick(s)}
                   className="px-4 py-2.5 text-sm font-medium rounded-xl border-2 border-border hover:bg-gradient-to-r hover:from-blue-50 hover:to-violet-50 dark:hover:from-blue-950/30 dark:hover:to-violet-950/30 hover:border-blue-200 dark:hover:border-blue-800/50 transition-all cursor-pointer text-foreground/70 hover:text-foreground hover:shadow-md"
                 >
                   {s}
@@ -110,14 +305,14 @@ export default function ChatPage() {
 
       {error && (
         <div className="mt-4 px-4 py-3 rounded-xl border-2 border-red-300 dark:border-red-900/50 bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-950/30 dark:to-red-900/20 text-red-600 dark:text-red-400 text-sm font-medium shadow-lg shadow-red-500/10">
-          {error.message}
+          {error}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="mt-5 flex gap-3">
         <input
           value={input}
-          onChange={handleInputChange}
+          onChange={(e) => setInput(e.target.value)}
           placeholder="Ask the agent to find products..."
           disabled={isLoading}
           className="flex-1 px-4 py-3 rounded-xl bg-background border-2 border-border placeholder:text-foreground/35 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 text-sm outline-none transition-all disabled:opacity-50 shadow-sm"

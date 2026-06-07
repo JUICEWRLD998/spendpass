@@ -1,184 +1,428 @@
-# VeriAgent — SpendPass
+# VeriAgent - SpendPass
 
-**Scoped spending delegation for AI commerce agents.**
+SpendPass is a scoped spending delegation demo for AI commerce agents, built with the Terminal 3 Agent Auth SDK.
 
-SpendPass lets you delegate shopping to an AI agent with explicit spending limits—not a stored credit card or all-or-nothing API key. The agent gets a cryptographic identity (`agt_*`), scoped capabilities, and every purchase is logged, constrained, and revocable.
+Instead of giving an AI agent a credit card, broad API key, or unrestricted checkout access, SpendPass lets a user approve exactly what an agent may do:
 
-Built for the [Terminal 3 Agent Dev Kit Bounty](https://dorahacks.io/hackathon/t3adkdevchallengebeta/qa) (deadline **June 7, 2026**).
+> You may search this store, manage my cart, and checkout up to $50 at `spendpass-store`. Anything above that requires another approval.
 
----
+The important behavior is enforced server-side through Agent Auth capabilities and constraints. The chat UI is only the user-facing host for the agent.
 
-## The problem
+## Submission Status
 
-> *"You may spend up to $50 at these merchants. Anything else requires my explicit approval."*
+This app is ready for judge testing when deployed with the required environment variables and database schema.
 
-Today, giving an agent payment access is binary: full card access or nothing. Terminal 3 calls out that transaction agents risk **executing unauthorized purchases**. SpendPass uses the [Agent Auth SDK](https://github.com/better-auth/agent-auth) to make delegation scoped, auditable, and revocable.
+- Built-in host/chat agent: `/dashboard/chat`
+- Provider/auth routes: `/api/auth/[[...all]]`
+- Device approval page: `/device/capabilities`
+- Delegation dashboard: `/dashboard/delegation`
+- Product catalog: seeded Postgres data
+- Built-in host storage: Postgres-backed Agent Auth client KV state
+- No OpenAI, Groq, or Gemini key required for the main demo flow
 
----
+## What Judges Can Test
 
-## How it works
+A judge can sign up as a normal user and run the complete flow:
+
+1. Browse the product catalog.
+2. Ask the built-in agent to find products.
+3. Approve scoped capabilities in the browser.
+4. Let the agent add items to cart.
+5. Checkout under the approved spending cap.
+6. Try an over-cap purchase.
+7. Approve an escalated spending cap.
+8. Revoke the agent and confirm the old delegation can no longer continue.
+
+This is not only a scripted demo. Agents, hosts, grants, approvals, carts, orders, and logs are backed by Postgres tables.
+
+## Architecture
+
+SpendPass contains both sides of the Agent Auth flow in one Next.js application.
+
+### Provider
+
+The provider is SpendPass itself. It owns the catalog, cart, checkout, users, grants, and approval decisions.
+
+Provider implementation:
+
+- `lib/auth.ts`
+- `app/api/auth/[[...all]]/route.ts`
+- `app/device/capabilities/page.tsx`
+
+The provider exposes four capabilities:
+
+| Capability | Purpose | Constraint behavior |
+| --- | --- | --- |
+| `search_products` | Search the mock catalog | No checkout authority |
+| `add_to_cart` | Add a product to the current agent cart | Requires approved agent capability |
+| `get_cart` | Read the current cart and total | Requires approved agent capability |
+| `checkout` | Place an order from the cart | Enforces `max_amount` and `merchants` constraints |
+
+### Host
+
+The host is the built-in shopping agent used by the chat page. It is the side that asks the provider for permission and then executes capabilities.
+
+Host implementation:
+
+- `app/api/chat/route.ts`
+- `lib/agent/storage.ts`
+- `lib/agent/client.ts`
+
+The host uses `@auth/agent` to:
+
+- register/connect a host identity
+- request user approval
+- persist host identity and agent connection data in Postgres
+- execute approved provider capabilities
+- request higher checkout limits when the current grant is too small
+
+External judges do not need to bring their own host. They can use the built-in host from `/dashboard/chat`.
+
+## Agent Auth Lifecycle
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Agent
-    participant AgentAuth as Agent Auth SDK
+    participant Chat as Built-in Host Chat
+    participant SDK as @auth/agent
     participant Provider as SpendPass Provider
+    participant DB as Postgres
 
-    User->>Agent: "Buy a USB-C hub under $40"
-    Agent->>AgentAuth: connect_agent (checkout, max $50)
-    AgentAuth->>Provider: Device approval
-    User->>Provider: Approve with constraints
-    Agent->>AgentAuth: execute checkout ($38)
-    Provider-->>User: Order placed ✓
-    User->>Agent: "Also buy the $120 monitor"
-    Agent->>AgentAuth: execute checkout ($120)
-    Provider-->>Agent: DENIED — exceeds grant
-    Agent->>AgentAuth: request_capability (max $150)
-    User->>Provider: Re-approve
-    Agent->>AgentAuth: execute checkout ($120)
-    Provider-->>User: Order placed ✓
+    User->>Chat: "Find USB-C hubs under $40"
+    Chat->>SDK: connectAgent(provider, capabilities)
+    SDK->>Provider: Register host/agent and create approval request
+    Provider->>DB: Store host, agent, pending grants
+    Provider-->>User: Device approval page
+    User->>Provider: Approve $50 checkout cap
+    Provider->>DB: Mark grants active
+    Chat->>SDK: execute search_products
+    SDK->>Provider: Signed capability execution
+    Provider-->>Chat: Product results
+
+    User->>Chat: "Buy the $120 monitor"
+    Chat->>SDK: execute checkout
+    Provider-->>Chat: constraint_violated
+    Chat->>SDK: requestCapability(checkout, max $150)
+    Provider-->>User: New approval page
+    User->>Provider: Approve $150 checkout cap
+    Provider->>DB: Store escalated grant
+    Chat->>SDK: retry checkout
+    Provider->>DB: Create order and clear cart
+    Provider-->>Chat: Order placed
 ```
 
-**Agent Auth is not optional plumbing** — it provides agent identity, capability constraints, escalation, revocation, and audit. A chatbot with a Stripe key cannot demonstrate any of that.
+## Runtime Flow
 
----
+### 1. User signs in
 
-## Architecture
+The judge creates an account through Better Auth email/password auth.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  User                                                        │
-│    ├── Chat UI (natural language requests)                   │
-│    └── Delegation Dashboard (grants, audit log, revoke)      │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────┐
-│  Agent Client (@auth/agent + Vercel AI SDK)                  │
-│    connect_agent · execute · request_capability              │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ signed JWTs
-┌──────────────────────────▼──────────────────────────────────┐
-│  SpendPass Provider (@better-auth/agent-auth)                 │
-│    Capabilities: search_products · add_to_cart · get_cart     │
-│                  checkout (constraint enforcement)             │
-│    SQLite/Drizzle: products · cart · orders · audit log       │
-└─────────────────────────────────────────────────────────────┘
+Routes:
+
+- `/sign-up`
+- `/sign-in`
+
+### 2. User opens the chat host
+
+The user opens:
+
+```text
+/dashboard/chat
 ```
 
----
+On the first shopping request, the API route creates an `AgentAuthClient`, initializes it, and connects an agent to the SpendPass provider URL.
 
-## MVP features
+### 3. User approves capabilities
 
-| Feature | Description |
-|---------|-------------|
-| Mock catalog | ~20 products in SQLite; no real payment processor |
-| Scoped checkout | Enforce `max_amount` and merchant allowlist on every purchase |
-| Device approval | User grants capabilities with constraints at connect time |
-| Escalation | Over-cap purchase denied → agent requests higher grant → user re-approves |
-| Audit log | Every capability execution logged with agent ID, args hash, outcome |
-| Revoke | `disconnect_agent` instantly blocks all further agent actions |
+The approval page asks the user to approve capabilities such as:
 
-### Capabilities
+```text
+search_products
+add_to_cart
+get_cart
+checkout with max_amount <= 50 and merchants in ["spendpass-store"]
+```
 
-| Capability | Notes |
-|------------|-------|
-| `search_products` | Keyword, category, max-price filters |
-| `add_to_cart` | Session-scoped cart |
-| `get_cart` | Items + running total |
-| `checkout` | Constraint enforcement; device or WebAuthn approval |
+The approval creates active capability grants in Postgres.
 
----
+### 4. Agent executes capabilities
 
-## Build phases
+After approval, the host can call provider capabilities. It cannot bypass `lib/auth.ts`; all store operations go through Agent Auth execution.
 
-Full phase breakdown lives in [BUILD_TARGET.md](./BUILD_TARGET.md). Summary:
+### 5. Checkout constraints are enforced
 
-| Phase | Focus | Exit criteria |
-|-------|-------|---------------|
-| **1 — Foundation** | Fork `agent-deploy`; mock catalog; wire `@auth/agent`; `search_products` works | User approves agent, agent searches catalog |
-| **2 — Constraints & checkout** | `add_to_cart`, `checkout`, denial + escalation, server audit log | $38 purchase succeeds; $120 denied then succeeds after re-approval |
-| **3 — Dashboard & revoke** | Delegation UI, live audit log, revoke button, demo rehearsal | Full demo arc runs end-to-end |
-| **4 — Polish & submit** | UI polish, README, architecture diagram, 90s demo video | Submission checklist complete |
+When checkout runs, the provider checks:
 
----
+- the cart is not empty
+- all items are from one merchant
+- the agent has an active `checkout` grant
+- the cart total is within `max_amount`
+- the merchant is included in the `merchants` allowlist
 
-## Demo arc (submission video)
+If a constraint fails, checkout does not create an order.
 
-1. Empty dashboard — no agent, no audit entries
-2. User delegates with **$50 checkout cap** → sees `agt_…` identity
-3. Agent buys **$38 USB-C hub** autonomously → audit log updates
-4. User asks for **$120 monitor** → checkout **denied**
-5. Escalation → user re-approves **$150 cap** → purchase succeeds
-6. User **revokes agent** → next action fails instantly
+### 6. Escalation requires new approval
 
----
+If the cart is above the current cap, the host requests a higher checkout grant. The current implementation waits for the specific escalated checkout grant to become active before retrying checkout.
 
-## Tech stack
+### 7. Revocation blocks old delegation
 
-- **Provider:** Next.js, `@better-auth/agent-auth`, Supabase (PostgreSQL), Drizzle ORM
-- **Agent client:** `@auth/agent`, Vercel AI SDK
-- **AI Model:** Groq AI (llama-3.3-70b-versatile)
-- **Optional:** `@auth/agent-cli mcp` for Cursor demos
-- **Reference:** [better-auth/agent-auth examples](https://github.com/better-auth/agent-auth) (`agent-deploy` fork)
+The delegation dashboard can revoke an active agent. After revocation, the old agent connection cannot continue executing capabilities; a fresh approval is required.
 
----
+## Tech Stack
 
-## Quick start
+- Next.js 16
+- React 19
+- Better Auth
+- `@better-auth/agent-auth`
+- `@auth/agent`
+- Drizzle ORM
+- Postgres via `postgres-js`
+- Tailwind CSS
 
-### 1. Configure environment
+Database note: this project uses Drizzle ORM, not Prisma ORM. It can still use any normal Postgres connection string, including Supabase, Neon, local Postgres, or Prisma Postgres if the URL exposes a standard Postgres endpoint.
 
-Copy `.env.example` to `.env` and fill in:
+## Local Setup
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | Supabase PostgreSQL connection string (get from Supabase project settings) |
-| `BETTER_AUTH_SECRET` | Yes | `openssl rand -base64 32` |
-| `BETTER_AUTH_URL` | Yes | `http://localhost:3100` |
-| `NEXT_PUBLIC_APP_URL` | Yes | Same as `BETTER_AUTH_URL` for local dev |
-| `GROQ_API_KEY` | Yes | Powers the shopping agent chat (get from https://console.groq.com/keys) |
-| `AGENT_AUTH_ENCRYPTION_KEY` | No | Encrypts agent keys in `.agent-data/` |
-
-### 2. Set up Supabase
-
-Follow the detailed guide in [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) to:
-1. Create a Supabase project
-2. Get your database connection string
-3. Get a Groq API key
-4. Configure your `.env` file
-
-### 3. Database setup
+### 1. Install dependencies
 
 ```bash
 npm install
+```
+
+### 2. Configure environment
+
+Copy `.env.example` to `.env` and set:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | Postgres connection string |
+| `BETTER_AUTH_SECRET` | Yes | Better Auth secret, for example `openssl rand -base64 32` |
+| `BETTER_AUTH_URL` | Yes | Local app URL, usually `http://localhost:3100` |
+| `NEXT_PUBLIC_APP_URL` | Yes | Same origin as the app |
+| `AGENT_AUTH_ENCRYPTION_KEY` | No | Optional key for agent private key encryption |
+
+For local development:
+
+```env
+BETTER_AUTH_URL=http://localhost:3100
+NEXT_PUBLIC_APP_URL=http://localhost:3100
+```
+
+For a public deployment, both URL values must be changed to the deployed origin.
+
+### 3. Push schema and seed products
+
+```bash
 npm run db:push
 npm run db:seed
 ```
 
-### 4. Run
+### 4. Verify setup
+
+```bash
+npm run verify
+```
+
+Expected result:
+
+- database connects successfully
+- required environment variables are present
+- product catalog contains seeded products
+
+### 5. Run locally
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3100](http://localhost:3100) → create an account → **Agent** tab to chat with the shopping agent.
+Open:
 
-### Phase 1 flow
+```text
+http://localhost:3100
+```
 
-1. Ask: *"Find a USB-C hub under $40"*
-2. Agent calls `connect_agent` → browser opens device approval
-3. Approve capabilities → agent searches catalog via `search_products`
+## Judge Test Script
 
-## Status
+Use this flow to verify the complete Agent Auth lifecycle.
 
-✅ **Phase 1 Complete** — Provider, catalog, agent chat, and core capabilities working with Groq AI + Supabase. Checkout constraints and escalation ship in Phase 2.
+### 1. Create an account
 
-See [PHASE1_COMPLETION.md](./PHASE1_COMPLETION.md) for detailed completion report and [BUILD_TARGET.md](./BUILD_TARGET.md) for the full project spec.
+Open:
 
----
+```text
+http://localhost:3100/sign-up
+```
 
-## Submission checklist
+Create any test user.
 
-- [ ] Public GitHub repo with setup instructions
-- [ ] Demo video: connect → approve → execute → denial → escalation → revoke
-- [ ] README with architecture diagram and Agent Auth lifecycle explanation
+### 2. Browse catalog
+
+Open:
+
+```text
+http://localhost:3100/dashboard
+```
+
+Confirm products appear.
+
+### 3. Connect the agent
+
+Open:
+
+```text
+http://localhost:3100/dashboard/chat
+```
+
+Send:
+
+```text
+Find USB-C hubs under $40
+```
+
+Approve the requested capabilities in the approval window.
+
+Expected:
+
+- chat shows an agent connection
+- product results are returned
+- `/dashboard/delegation` shows an active agent and grants
+
+### 4. Checkout under the cap
+
+Send:
+
+```text
+Add the USB-C Hub 7-in-1 to my cart
+```
+
+Then:
+
+```text
+Checkout
+```
+
+Expected:
+
+- order is placed
+- checkout is within the initial `$50` cap
+- cart is cleared after successful checkout
+
+### 5. Test over-cap escalation
+
+Send:
+
+```text
+Buy the $120 monitor too
+```
+
+Expected:
+
+- initial checkout attempt is blocked by the `$50` grant
+- chat requests a higher `$150` checkout approval
+- a new approval page opens
+- after approval, checkout retries and succeeds
+
+### 6. Revoke
+
+Open:
+
+```text
+http://localhost:3100/dashboard/delegation
+```
+
+Revoke the active agent.
+
+Expected:
+
+- old agent is no longer active
+- another shopping request requires a fresh approval
+
+## Deployment Checklist
+
+For judges to test the live app, configure the deployed environment:
+
+- `DATABASE_URL` points to a reachable Postgres database
+- `BETTER_AUTH_SECRET` is set
+- `BETTER_AUTH_URL` is the deployed app origin
+- `NEXT_PUBLIC_APP_URL` is the deployed app origin
+- database schema has been pushed with `npm run db:push`, including the `agent_client_kv` host storage table
+- products have been seeded with `npm run db:seed`
+- popup windows are allowed for the deployed origin during approval testing
+
+Example deployed URL configuration:
+
+```env
+BETTER_AUTH_URL=https://your-app.example.com
+NEXT_PUBLIC_APP_URL=https://your-app.example.com
+```
+
+Do not leave these as `localhost` in production.
+
+## Useful Routes
+
+| Route | Purpose |
+| --- | --- |
+| `/` | Entry page |
+| `/dashboard` | Product catalog |
+| `/dashboard/chat` | Built-in Agent Auth host/chat |
+| `/dashboard/agents` | Agent list |
+| `/dashboard/hosts` | Host list |
+| `/dashboard/delegation` | Active grants, audit data, revocation |
+| `/device/capabilities` | User approval page |
+| `/api/chat` | Host-side shopping API |
+| `/api/auth/[[...all]]` | Better Auth and Agent Auth provider API |
+
+## Troubleshooting
+
+### No products appear
+
+Run:
+
+```bash
+npm run db:seed
+```
+
+Then verify:
+
+```bash
+npm run verify
+```
+
+### Approval page does not open
+
+Allow popups for the app origin. The chat page opens the approval flow in a browser window.
+
+### Deployed approval redirects to localhost
+
+Update:
+
+```env
+BETTER_AUTH_URL=https://your-deployed-origin
+NEXT_PUBLIC_APP_URL=https://your-deployed-origin
+```
+
+Restart or redeploy the app after changing environment variables.
+
+### Checkout fails with a constraint error
+
+That is expected for over-cap purchases. Approve the escalated checkout grant, then the host retries checkout.
+
+### Database question: is this Prisma?
+
+The app uses Postgres but not Prisma ORM. The ORM is Drizzle. A Prisma Postgres database can work if its `DATABASE_URL` is a normal Postgres connection string.
+
+## Verification Commands
+
+```bash
+npx tsc --noEmit
+npm run lint
+npm run build
+npm run verify
+```
+
+Current local verification has passed with a connected Postgres database and 20 seeded products.
+
+## Repository Notes
+
+The `_ref-agent-auth/` directory is a local reference copy of Agent Auth examples and is ignored by the app lint configuration. The SpendPass implementation lives in the root `app/`, `lib/`, `components/`, and `scripts/` directories.

@@ -142,6 +142,7 @@ function formatProduct(p: {
 
 export const auth = betterAuth({
   baseURL: BASE_URL,
+  secret: process.env.BETTER_AUTH_SECRET,
   database: drizzleAdapter(db, {
     provider: "pg",
     schema,
@@ -165,7 +166,7 @@ export const auth = betterAuth({
         return supportedMethods.includes(method) ? method : "device_authorization";
       },
       allowDynamicHostRegistration: true,
-      onExecute: async ({ capability, arguments: args, agentSession }) => {
+      onExecute: async ({ capability, arguments: args, agentSession, grant }) => {
         const userId = agentSession.user.id;
         const agentId = agentSession.agent.id;
 
@@ -244,22 +245,30 @@ export const auth = betterAuth({
               );
             }
 
-            // Extract constraints from the grant
-            const grant = agentSession.grants.find((g) => g.capability === "checkout");
-            if (!grant) {
+            // Extract constraints from the active checkout grant.
+            const checkoutGrant =
+              grant?.capability === "checkout"
+                ? grant
+                : agentSession.agent.capabilityGrants.find(
+                    (g) => g.capability === "checkout" && g.status === "active",
+                  );
+            if (!checkoutGrant) {
               throw new Error(
                 "NO_CHECKOUT_GRANT: Agent does not have checkout capability. Request capability first.",
               );
             }
 
-            // Parse constraints (stored as JSON string)
             let constraints: {
               max_amount?: { max?: number };
               merchants?: { in?: string[] };
             } = {};
 
             try {
-              constraints = grant.constraints ? JSON.parse(grant.constraints) : {};
+              const rawConstraints = (checkoutGrant as { constraints?: unknown }).constraints;
+              constraints =
+                typeof rawConstraints === "string"
+                  ? JSON.parse(rawConstraints)
+                  : ((rawConstraints ?? {}) as typeof constraints);
             } catch {
               throw new Error("INVALID_CONSTRAINTS: Failed to parse checkout constraints");
             }

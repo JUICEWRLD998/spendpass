@@ -72,6 +72,7 @@
 1. Click "Delegation" in navigation
 
 **What to see:**
+
 - **Agent Card:** Name, green "Active" status, agent ID
 - **Capabilities:** 4 listed (search_products, add_to_cart, get_cart, checkout)
 - **Constraints:** `max_amount: ≤ $50`, `merchants: spendpass-store`

@@ -1,0 +1,26 @@
+{
+  "name": "@terminal3/vc_cast",
+  "version": "0.1.32",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@terminal3/vc_core": "0.0.37",
+    "@veramo/core": "^4.3.0",
+    "@veramo/core-types": "^6.0.0"
+  },
+  "scripts": {
+    "test": "npx jest --detectOpenHandles --coverage",
+    "build": "tsc",
+    "clean": "rimraf dist",
+    "prepublish": "pnpm run clean && pnpm run build"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "gitHead": "a0b1a56d326d5ece06a366d49459dfeafbfab12b"
+}

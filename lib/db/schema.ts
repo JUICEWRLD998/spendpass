@@ -315,3 +315,13 @@ export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
 });
+
+export const agentClientKv = pgTable("agent_client_kv", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});

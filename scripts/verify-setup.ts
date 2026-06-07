@@ -14,14 +14,11 @@ const REQUIRED_ENV_VARS = [
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
   "NEXT_PUBLIC_APP_URL",
-  "GROQ_API_KEY",
 ];
 
 const EXPECTED_PACKAGES = [
-  "@ai-sdk/groq",
   "@auth/agent",
   "@better-auth/agent-auth",
-  "ai",
   "better-auth",
   "drizzle-orm",
 ];
@@ -143,25 +140,6 @@ async function main() {
 
   if (authUrl && !authUrl.startsWith("http")) {
     console.log(`  ❌ BETTER_AUTH_URL must start with http:// or https://`);
-    errors++;
-  }
-
-  console.log();
-
-  // ── Check Groq API Key Format ──────────────────────────────────────
-  console.log("🤖 Checking Groq API key...");
-  const groqKey = process.env.GROQ_API_KEY;
-  if (groqKey) {
-    if (groqKey.startsWith("gsk_")) {
-      console.log(`  ✅ Groq API key format looks correct`);
-    } else {
-      console.log(
-        `  ⚠️  Groq API key doesn't start with 'gsk_' — may be invalid`,
-      );
-      warnings++;
-    }
-  } else {
-    console.log(`  ❌ GROQ_API_KEY not set`);
     errors++;
   }
 

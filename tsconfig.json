@@ -29,5 +29,5 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "_ref-agent-auth"]
+  "exclude": ["node_modules", "_ref-agent-auth", "scripts/test-groq.ts"]
 }

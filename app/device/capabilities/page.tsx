@@ -47,6 +47,30 @@ function formatConstraintValue(value: unknown): string {
   return parts.join(", ") || JSON.stringify(value);
 }
 
+function formatConstraintLabel(field: string, value: unknown): string {
+  if (
+    field === "max_amount" &&
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as Record<string, unknown>).max === "number"
+  ) {
+    return `Maximum order: $${(value as { max: number }).max}`;
+  }
+
+  if (
+    field === "merchants" &&
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Array.isArray((value as Record<string, unknown>).in)
+  ) {
+    return `Allowed merchant: ${(value as { in: unknown[] }).in.map(String).join(", ")}`;
+  }
+
+  return `${field}: ${formatConstraintValue(value)}`;
+}
+
 function Spinner() {
   return (
     <div className="h-4 w-4 rounded-full border-2 border-foreground/10 border-t-foreground/60 animate-spin" />
@@ -151,6 +175,9 @@ function DeviceCapabilitiesContent() {
       }
       setResult(data);
       setActionState("done");
+      if (!agentInfo?.claim) {
+        window.setTimeout(() => window.close(), 700);
+      }
     } catch {
       setError("Failed to process action");
       setActionState("idle");
@@ -538,8 +565,7 @@ function DeviceCapabilitiesContent() {
                                 key={field}
                                 className="inline-flex items-center gap-0.5 text-[10px] font-mono rounded bg-foreground/[0.04] border border-border px-1.5 py-px text-foreground/45"
                               >
-                                <span className="text-foreground/30">{field}:</span>{" "}
-                                {formatConstraintValue(value)}
+                                {formatConstraintLabel(field, value)}
                               </span>
                             ))}
                           </div>

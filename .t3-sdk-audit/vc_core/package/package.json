@@ -1,0 +1,30 @@
+{
+  "name": "@terminal3/vc_core",
+  "version": "0.0.37",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "did-jwt": "^8.0.4",
+    "ethers": "^6.13.1",
+    "uuid": "^10.0.0"
+  },
+  "scripts": {
+    "test": "npx jest --detectOpenHandles --coverage",
+    "build": "tsc",
+    "clean": "rimraf dist",
+    "prepublish": "pnpm run clean && pnpm run build"
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0",
+    "testcontainers": "^10.10.1"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "gitHead": "a0b1a56d326d5ece06a366d49459dfeafbfab12b"
+}
