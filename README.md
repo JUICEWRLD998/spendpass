@@ -1,39 +1,21 @@
-# VeriAgent - SpendPass
+# SpendPass
 
 SpendPass is a scoped spending delegation demo for AI commerce agents, built with the Terminal 3 Agent Auth SDK.
 
-Instead of giving an AI agent a credit card, broad API key, or unrestricted checkout access, SpendPass lets a user approve exactly what an agent may do:
+Instead of giving an AI agent a credit card or unrestricted checkout access, SpendPass lets a user approve exactly what the agent may do:
 
-> You may search this store, manage my cart, and checkout up to $50 at `spendpass-store`. Anything above that requires another approval.
+> *"You may search this store, manage my cart, and checkout — up to $50 at spendpass-store. Anything above that requires a new approval."*
 
-The important behavior is enforced server-side through Agent Auth capabilities and constraints. The chat UI is only the user-facing host for the agent.
+That constraint is enforced server-side through Agent Auth capabilities and grants. The chat interface is just the host — the trust boundary lives in the protocol.
 
-## Submission Status
+**Routes**
+- `/dashboard/chat` — Chat interface with built-in shopping agent
+- `/device/capabilities` — Agent approval page
+- `/dashboard/delegation` — View active grants and agent sessions
+- `/api/auth/[[...all]]` — Better Auth + Agent Auth provider routes
 
-This app is ready for judge testing when deployed with the required environment variables and database schema.
-
-- Built-in host/chat agent: `/dashboard/chat`
-- Provider/auth routes: `/api/auth/[[...all]]`
-- Device approval page: `/device/capabilities`
-- Delegation dashboard: `/dashboard/delegation`
-- Product catalog: seeded Postgres data
-- Built-in host storage: Postgres-backed Agent Auth client KV state
-- No OpenAI, Groq, or Gemini key required for the main demo flow
-
-## What Judges Can Test
-
-A judge can sign up as a normal user and run the complete flow:
-
-1. Browse the product catalog.
-2. Ask the built-in agent to find products.
-3. Approve scoped capabilities in the browser.
-4. Let the agent add items to cart.
-5. Checkout under the approved spending cap.
-6. Try an over-cap purchase.
-7. Approve an escalated spending cap.
-8. Revoke the agent and confirm the old delegation can no longer continue.
-
-This is not only a scripted demo. Agents, hosts, grants, approvals, carts, orders, and logs are backed by Postgres tables.
+**Stack**
+- Next.js 16 · Better Auth · Agent Auth SDK · Drizzle ORM · Postgres · Gemini AI
 
 ## Architecture
 
